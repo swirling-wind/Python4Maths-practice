@@ -19,7 +19,7 @@ from array import array
 import collections
 #from cplex_wrap import *
 
-CPLEXversion = 12.6  # what version of CPLEX is loaded (or will try to load by default)
+CPLEXversion = 22.1  # what version of CPLEX is loaded (or will try to load by default)
 
 __doc__ = """Module for defining and solving linear programming models.
 The main elements of this module are
@@ -62,7 +62,7 @@ Example usage:
   # provide a starting solution where some/all of the variable values are set 
   m.mipStart( (y[i],1) for i in N)
   m.optimise()
-  mycplex.cplex.CPXwriteprob(m.Env,m.LP,'myprob.mps','MPS')
+  m.write('myprob.lp','LP')
   print y.x ## show y solution
 
 Warning: There is a slight confusion in the syntax y <= 1 sets the upper
@@ -110,7 +110,7 @@ def loadCPLEX(CPXversionNo=int(CPLEXversion*10)):
                             CPLEXdllPath = tmp+os.sep+fn
                             break
             if not os.path.exists(CPLEXdllPath):
-                for pathdir in os.getenv("PATH").split(":"):
+                for pathdir in ["/usr/local/CPLEX/%s/cplex/bin"%CPLEXversion] + os.getenv("PATH").split(":"):
                     if not os.path.isdir(pathdir): continue
                     for lib in os.listdir(pathdir):
                         m = re.match("libcplex([0-9]+).so",lib)
@@ -929,7 +929,7 @@ Specifies an upper limit on the amount of central memory, in megabytes, that CPL
         "Name of parameter given index"
         n = array('b',b"\x00"*CPX_STR_PARAM_MAX)		
         cplex.CPXgetparamname(Env,c_int(index),ptr(n))
-        return n.tostring().strip(b'\x00').decode() # return as string
+        return n.tobytes().strip(b'\x00').decode() # return as string
         
     def _lookup(self,index):
         "Return parameter (index,type) tuple"
@@ -1343,10 +1343,10 @@ class Model(object):
         cplex.CPXaddrows(self.Env,self.LP,
                          c_int(0), # no new columns. len(self.var),
                          c_int(len(rhs)),c_int(numels),
-                         ptr(rhs),sen.tostring(),ptr(start),
+                         ptr(rhs),sen.tobytes(),ptr(start),
                          ptr(ind),ptr(elem),c_void_p(0),rowname)
         #self.solver.addRows(len(cons),numels,ptr(elem),ptr(ind),ptr(start),
-        #                    sen.tostring(),ptr(rhs))
+        #                    sen.tobytes(),ptr(rhs))
     # end addRows
 
     def deleteRows(self,cons):
@@ -1404,7 +1404,7 @@ class Model(object):
         #        len(self.eqn),self.sense
         #print "Obj",self.obj
         #print "RHS:",rhs
-        #print "Sense:",sen.tostring()
+        #print "Sense:",sen.tobytes()
         #print "start:",start
         #print "M.cnt:",matcnt
         #print "M.ind:",ind
@@ -1425,12 +1425,12 @@ class Model(object):
             nRows = 1
         # cplex.CPXcopylp(self.Env,self.LP,c_int(len(self.var)),
         #                 c_int(nRows), c_char_p(self.sense),
-        #                 ptr(self.obj),ptr(rhs),c_char_p(sen.tostring()),
+        #                 ptr(self.obj),ptr(rhs),c_char_p(sen.tobytes()),
         #                 ptr(start),ptr(matcnt),ptr(ind),ptr(elem),
         #                 ptr(collb),ptr(colub),ptr(rng))
         cplex.CPXcopylpwnames(
             self.Env,self.LP,c_int(len(self.var)),c_int(nRows),
-            c_int(self.sense),ptr(self.obj),ptr(rhs),c_char_p(sen.tostring()),
+            c_int(self.sense),ptr(self.obj),ptr(rhs),c_char_p(sen.tobytes()),
             ptr(start),ptr(matcnt),ptr(ind),ptr(elem),
             collb,colub,rng,colname,rowname)
         if emptyRows: # delete dummy row
@@ -1443,7 +1443,7 @@ class Model(object):
                 ctype[v.id] = b'I'[0]
                 self.mip = True
         if self.mip:
-            cplex.CPXcopyctype(self.Env,self.LP,c_char_p(ctype.tostring()))
+            cplex.CPXcopyctype(self.Env,self.LP,c_char_p(ctype.tobytes()))
         self.solverInitialised = True
         gc.enable()
         return  # end load()
@@ -1455,6 +1455,8 @@ class Model(object):
         or a generator expression
         returns 0 if successful
         """
+        if not self.solverInitialised:
+            self.load()
         mcnt=1
         if type(varvalPairs) == type({}):
             varvalPairs=varvalPairs.items()
@@ -1653,9 +1655,9 @@ class Model(object):
     def write(self,filename,filetype=None):
         """Write to file. Assumes filename ends with .lp or .mps etc to
         determine the type unless the filetype is explicitly given"""
-        self.load()
+        if not self.solverInitialised: self.load()
         if not filetype: filetype = filename.split(".")[-1].upper()
-        cplex.CPXwriteprob(self.Env,self.LP,filename.encode(),filetype.encode())
+        return cplex.CPXwriteprob(self.Env,self.LP,filename.encode(),filetype.encode())
     
     def write_lp(self,filename):
         """Write to file. This must be called before model is solved or
@@ -1943,21 +1945,28 @@ if __name__ == "__main__":
       M.param["SCRIND"] = "ON"
       M.setLogFile("xxx.log")
       print("Set",M.param.name(CPX_PARAM_SCRIND),"to:",M.param[CPX_PARAM_SCRIND])
-      I = range(5)
-      x,y,z = M.variable("x"),M.variable("y"),M.variable("z")
-      for var in [x,y,z]:
-          0 <= var <= 3
-      eqn = (2 * x + y + 5 * z >= 18.0)
-      M.min(x+y+z)
-      M.SubjectTo( ("eqn",eqn) ) # equation with name
-      print("Solving Min",x+y+z)
-      print("Subject To:",str(eqn))
-      print("            0 <= x,y,z <= 3")
+      N = range(10)
+      x = [ [ M.variable('x%d_%d'%(i,j) ) for j in N] for i in N]
+      y = [M.variable('y',Integer,lb=-1,ub=10) for i in N]
+      z = M.variable() # name is optional
+      M.min( sum( x[i][j] for i in N for j in N ) )
+      M.SubjectTo( 2 * sum(y) + z >= 3 )
+      M.SubjectTo(
+          {"C%d"%j: # add named constraints using dictionaries
+           sum( i * x[i][j] for i in N ) == y[j] + z for j in N})
+      # make all y's integer and z binary:
+      y in Integer and  z in ZeroOne
+      for i in N:
+          for j in N: 0 <= x[i][j] <= 2
+      print("Solving Min sum(x_ij for i,j in N)")
+      print("Subject To:",str( sum( i * x[i][0] for i in N ) == y[0] + z))
       print("Model has %d vars %d eqns and %d coeff" % (M.numCols(),M.numRows(),M.numNZ()))
       M.load()
       print("Loaded model has %d vars %d eqns and %d coeff" % (M.numCols(),M.numRows(),M.numNZ()))
+      M.mipStart( (y[i],1) for i in N) # provide a starting solution where some variable values are set 
       print("Optimising...")
       M.optimise()      
       print("Objective value =",M.objective())
-      print("Optimal solution =",[x.x,y.x,z.x],"  dual =",eqn.x)
+      M.write('myprob.lp.gz',"LP")
+      print("Wrote compressed model to myprob.lp.gz")
 

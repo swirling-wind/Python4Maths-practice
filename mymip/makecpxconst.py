@@ -11,7 +11,7 @@ if len(sys.argv) == 2:
 	else:
 		cpxconstPath = sys.argv[-1]
 if not cpxconstPath or not os.path.exists(cpxconstPath):
-	for path in ["/tools/ILOG/cplex125/cplex","/tools/ILOG/cplex125", r"C:\Program Files\IBM\ILOG\CPLEX_Studio125\cplex" "/usr/local/cplex/12.6.3/cplex"]:
+	for path in ["/tools/ILOG/cplex125/cplex","/tools/ILOG/cplex125", r"C:\Program Files\IBM\ILOG\CPLEX_Studio125\cplex" "/usr/local/CPLEX/22.1/cplex"]:
 		if os.path.exists(path):
 			cpxconstPath = os.sep.join([path,"include","ilcplex","cpxconst.h"])
 			if os.path.exists(cpxconstPath): break
@@ -20,7 +20,10 @@ if not cpxconstPath or not os.path.exists(cpxconstPath):
 	sys.exit(2)
 
 out = open("cpxconst.py","w")
+print("# constants generated from:",cpxconstPath,file=out)
+print("""import math""",file=out)
 tmp = ""
+CONST = { "NAN":"math.nan", "INT_MAX":"2**63-1", "INT_MIN":"-2**63"}
 for line in open(cpxconstPath,"r").readlines():
 	if tmp:
 		line = tmp+line.strip()
@@ -33,10 +36,11 @@ for line in open(cpxconstPath,"r").readlines():
 	field = line.strip().split()
 	if len(field) < 3 or not field[1].startswith("CPX"): continue
 	if field[2].startswith("_"): continue
-	if field[2].startswith('"'):
+	if field[2] in CONST: field[2] = CONST[field[2]]
+	elif field[2].startswith('"'):
 		field[2] = " ".join(field[2:])
 		if field[2][-1] != '"': field[2] += '"'
-	if field[2].endswith("L") and field[2][-2].isdigit() :
+	if field[2].endswith("L") and field[2][-3].isdigit() :
 		field[2] = field[2].strip("L") # long integer
 	print(field[1],"=",field[2], file=out)
 	
