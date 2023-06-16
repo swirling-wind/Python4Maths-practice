@@ -7,6 +7,7 @@
 
 import gc # need to disable garbage collection for speed
 from ctypes import * # for direct access to dynamic library
+import ctypes.util # not included automatically
 try:
     from .cpxconst import * # constants from CPLEX header file
 except:
@@ -1268,9 +1269,11 @@ class Model(object):
             name="R%d" % self._eqnBlockCnt
             self._eqnBlockCnt += 1
         if self.solverInitialised:
-            self.addRows(*constraints,name=name)
-        else:
-            self.eqn += [c for c in self._flattenConstraintList(*constraints,name=name)]
+            return self.addRows(*constraints,name=name)
+        eqns = [c for c in self._flattenConstraintList(*constraints,name=name)]
+        self.eqn += eqns
+        if len(eqns) == 1: return eqns[0]
+        return eqns
 
     def newColumn(self,coefList=[],obj=0.0,lb=0,ub=1,name=""):
         """Add a new column/variable to the problem. With empty coefList this
@@ -1327,6 +1330,7 @@ class Model(object):
         rhs = array("d")
         sen = array("b")
         names = []
+        eqnstart = len(self.eqn)
         for con in self._flattenConstraintList(*constraints):
             self.eqn.append(con)
             names.append( con.name.encode() if con.name else b"C%d"%len(self.eqn) )
@@ -1347,6 +1351,8 @@ class Model(object):
                          ptr(ind),ptr(elem),c_void_p(0),rowname)
         #self.solver.addRows(len(cons),numels,ptr(elem),ptr(ind),ptr(start),
         #                    sen.tobytes(),ptr(rhs))
+        if len(self.eqn) == eqnstart+1: return self.eqn[-1]
+        return self.eqn[eqnstart:]
     # end addRows
 
     def deleteRows(self,cons):
@@ -1470,6 +1476,10 @@ class Model(object):
         return cplex.CPXaddmipstarts(self.Env,self.LP,1,len(val),ptr(beg),
                               ptr(idx),ptr(val),ptr(eff),c_void_p(0))
     
+    def optimize(self):
+        "For Americans only - everyone else optimise()'s"
+        self.optimise()
+	
     def optimise(self):
         """Solve LP relaxation of problem using the model's solver.
         This function actually does the work of transfering data into the
