@@ -1210,6 +1210,34 @@ class Model(object):
         """Change the coefficients of a constraint or a list of constraints."""
         print("NOT IMPLEMENTED YET")
 #        CPXchgcoeflist(self.Env, self.LP, int numcoefs, const int * rowlist, const int * collist, const double * vallist)
+    def _flattenConstraintIDs(self,*constraints,key=tuple()):
+        """Iterate over lists/tuples/dictionaries/... of constraints
+        Returns a list of IDs (tuples to be used in a dictonary of equations)"""
+        unpack = lambda key: key[0] if len(key)==1 else key
+        for constraint in constraints:
+            cType = type(constraint)
+            if cType is Constraint:
+                yield unpack(key)
+            elif cType is DictType: # assumes we have name:constraint
+                for nm,row in constraint.items(): 
+                    for k in self._flattenConstraintIDs(row,key=key+(nm,) ):
+                        yield unpack(k)
+            elif cType is type( (1,2) ) and len(constraint) == 2 and (
+                   type(constraint[0]) is type("") or  type(constraint[1]) is type("")):
+                if type(constraint[0]) is type(""):
+                    for c in self._flattenConstraintIDs(constraint[1],key=key + (constraint[0],) ):
+                        yield unpack(c)
+                else:
+                    for c in self._flattenConstraintIDs(
+                            constraint[0], key + (constraint[1],) ):
+                        yield unpack(c)                        
+            elif isIterable(constraint):
+                for i,item in enumerate(constraint):
+                    for c in self._flattenConstraintIDs(item,key=key + (i,)):
+                        yield unpack(c)
+            else:
+                raise Exception("Unknown constraint type "+str(cType))
+        
 
     def _flattenConstraintList(self,*constraints,name=""):
         """Iterate over lists/tuples/dictionaries/... of constraints
@@ -1226,11 +1254,14 @@ class Model(object):
             elif cType is type( (1,2) ) and len(constraint) == 2 and (
                    type(constraint[0]) is type("") or  type(constraint[1]) is type("")):
                 if type(constraint[0]) is type(""):
-                    for c in self._flattenConstraintList(constraint[1],name=constraint[0]):
+                    if name: name = name + "_"+constraint[0]
+                    else:    name = constraint[0]
+                    for c in self._flattenConstraintList(constraint[1],name=name):
                         yield c
                 else:
-                    for c in self._flattenConstraintList(
-                            constraint[0],name=constraint[1]):
+                    if name: name = name + "_"+constraint[1]
+                    else:    name = constraint[1]
+                    for c in self._flattenConstraintList(constraint[0],name=name):
                         yield c                        
             elif isIterable(constraint):
                 for i,item in enumerate(constraint):
@@ -1273,7 +1304,7 @@ class Model(object):
         eqns = [c for c in self._flattenConstraintList(*constraints,name=name)]
         self.eqn += eqns
         if len(eqns) == 1: return eqns[0]
-        return eqns
+        return { key:eq for (key,eq) in zip(self._flattenConstraintIDs(*constraints,key=tuple()),eqns)}
 
     def newColumn(self,coefList=[],obj=0.0,lb=0,ub=1,name=""):
         """Add a new column/variable to the problem. With empty coefList this
@@ -1352,7 +1383,8 @@ class Model(object):
         #self.solver.addRows(len(cons),numels,ptr(elem),ptr(ind),ptr(start),
         #                    sen.tobytes(),ptr(rhs))
         if len(self.eqn) == eqnstart+1: return self.eqn[-1]
-        return self.eqn[eqnstart:]
+        return { key:eq  for (key,eq) in zip(
+            self._flattenConstraintIDs(*constraints,key=tuple()), self.eqn[eqnstart:]) }
     # end addRows
 
     def deleteRows(self,cons):
