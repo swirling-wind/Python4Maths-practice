@@ -53,7 +53,7 @@ Example usage:
   z = m.variable() # name is optional
   m.min( sum( x[i][j] for i in N for j in N ) )
   m.SubjectTo( 2 * sum(y) + z >= 3 )
-  m.SubjectTo(
+  constr = m.SubjectTo(
    {"C%d"%j: # add named constraints using dictionaries
      sum( i * x[i][j] for i in N ) == y[j] + z for j in N})
   # make all y's integer and z binary:
@@ -64,7 +64,8 @@ Example usage:
   m.mipStart( (y[i],1) for i in N)
   m.optimise()
   m.write('myprob.lp','LP')
-  print y.x ## show y solution
+  print(y.x) ## show y solution
+  print(constr["C0"].x) # dual of constraint
 
 Warning: There is a slight confusion in the syntax y <= 1 sets the upper
          bound for y while 1.0*y <= 1 is a constraint (similarly y==1 sets
